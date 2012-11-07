@@ -15,8 +15,8 @@ Optionally, you can instantiate your own comufy instance for development purpose
 """
 
 class Comufy(object):
-    base_api_url = 'https://social.comufy.com/xcoreweb/client?request='
-    base_api_url = 'https://staging.comufy.com/xcoreweb/client?request='
+    base_api_url = 'https://social.comufy.com/xcoreweb/client'
+    base_api_url = 'https://staging.comufy.com/xcoreweb/client'
     access_token = None
     expiry_time = None
     def __init__(self, username='', password='' ):
@@ -68,10 +68,10 @@ def send_api_call(data, add_access_token=True):
     
     json_data = json.dumps( data )
     log.debug( json_data )
-    comufy_url = '%s%s'%( comufy.base_api_url, urllib.quote( json_data ) )
-    comufy_request = urllib2.Request( comufy_url )
+
+    comufy_request = urllib2.Request( comufy.base_api_url )
     
-    response = urllib2.urlopen( comufy_request )
+    response = urllib2.urlopen( comufy_request, urllib.urlencode(dict(request=json_data)))
     log.debug( response.msg )
     if response.msg == 'OK':                                                    #MAGIC NUMBER: Check to see if the value 'OK' is actually a constant defined as a constant which we can use instead of hardcoding like this
         message = response.read()
@@ -270,7 +270,7 @@ def add_application_user(application_name, user_details, add_new_tags=False):
     
     #Step X: Check that the response from their server was OK
     if success:
-        if message.get(u'cd') == 388:                                           #MAGIC NUMBER: 388 is the OK response from Comufy's API
+        if message.get(u'cd') == 388:    #MAGIC NUMBER: 388 is the OK response from Comufy's API
             #If we get an OK message this means the user was successfully added/updated so return True to the caller
             return True
         else:
