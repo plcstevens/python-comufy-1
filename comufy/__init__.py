@@ -2,7 +2,6 @@ import logging
 import urllib
 import urllib2
 import json
-
 import os
 
 from datetime import datetime
@@ -15,18 +14,14 @@ Optionally, you can instantiate your own comufy instance for development purpose
 """
 
 class Comufy(object):
-    base_api_url = 'https://social.comufy.com/xcoreweb/client'
-    base_api_url_staging = 'https://staging.comufy.com/xcoreweb/client'
-    access_token = None
-    expiry_time = None
-    def __init__(self, username='', password='', debug=False ):
-        " instatiate a comufy instance - check the environment variables are set."
-        self.username = os.environ.get('COMUFY_USERNAME', username)
-        self.password = os.environ.get('COMUFY_PASSWORD', password)
-        if debug:
-            self.base_api_url = self.base_api_url_staging
-
     
+    def __init__(self, access_token='', base_api_url='', username='', password=''):
+        " instatiate a comufy instance - check the environment variables are set."
+        self.access_token   = os.environ.get('COMUFY_TOKEN',    access_token)
+        self.base_api_url   = os.environ.get('COMUFY_URL',      base_api_url)
+        self.username       = os.environ.get('COMUFY_USERNAME', username)
+        self.password       = os.environ.get('COMUFY_PASSWORD', password)
+
     def convert_from_comufy_timestamp(self, value):
         """
         This function deals with converting a comufy timestamp which is in unix
@@ -35,22 +30,13 @@ class Comufy(object):
         object complains about it.
         
         """
-    #TODO: Research if there is a way to tell python's datetime that the timestamp
-    #is in milliseconds when parsing it instead of this dirty hack below
-        
-        #Step 1: Check to see if the type is an int, and if not then cast it to an int
         if type(value) != type(int):
             value = int(value)
-        
-        #Step 2: Remove the three offending trailing zeros from the timestamp
-        value = value / 1000
-        
-        #Step 3: Parse the timestamp into a date time object and return to the caller
+        value /= 1000
         return datetime.fromtimestamp( value )
     
     def send_api_call(self, data, add_access_token=True):
         """
-        
         @return A boolean value that indicates if when communicating with Comufy's
         API, we got an 'OK' response from the request object.  NOTE: An 'OK' message
         does not mean that everything was successful, just that the web request was
@@ -65,17 +51,14 @@ class Comufy(object):
             if not self.get_access_token():
                 return False, None
             data['token'] = self.access_token
-        
-        json_data = json.dumps( data )
-        log.debug( json_data )
-    
-        comufy_request = urllib2.Request( self.base_api_url )
-        
+        json_data = json.dumps(data)
+        log.debug(json_data)
+        comufy_request = urllib2.Request(self.base_api_url)
         response = urllib2.urlopen( comufy_request, urllib.urlencode(dict(request=json_data)))
-        log.debug( response.msg )
-        if response.msg == 'OK':                                                    #MAGIC NUMBER: Check to see if the value 'OK' is actually a constant defined as a constant which we can use instead of hardcoding like this
+        log.debug(response.msg)
+        if response.msg == 'OK':
             message = response.read()
-            return True, json.loads( message )
+            return True, json.loads(message)
         else:
             return False, None
     
@@ -248,14 +231,14 @@ class Comufy(object):
             return False
         
         #Step 2: Validate the tags being used with those associated with the app
-        current_tags = self.get_application_tags()
+        current_tags = self.get_application_tags(application_name)
         for key in user_details.get(u'tags').keys():
             if not key in current_tags:
                 if not add_new_tags:
                     log.debug('removing user ')
                     del user_details.get(u'tags')[key]
                 else:
-    #TODO: Add code to create a new tag for the application entry
+                    #TODO: Add code to create a new tag for the application entry
                     log.error("Need to implement this bit")
         
         #Step 3: Build the data object that the API requires
@@ -268,7 +251,7 @@ class Comufy(object):
         
         #Step X: Check that the response from their server was OK
         if success:
-            if message.get(u'cd') == 388:    #MAGIC NUMBER: 388 is the OK response from Comufy's API
+            if message.get(u'cd') == 388:
                 #If we get an OK message this means the user was successfully added/updated so return True to the caller
                 return True
             else:
@@ -475,3 +458,4 @@ class Comufy(object):
         success, message = self.send_api_call(data)
         log.debug('%s: %s' % (success, message))
         return success, message
+
