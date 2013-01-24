@@ -19,19 +19,6 @@ class Comufy(object):
         self.access_token   = os.environ.get('COMUFY_TOKEN', access_token)
         self.base_api_url   = os.environ.get('COMUFY_URL',   base_api_url)
 
-    def convert_from_comufy_timestamp(self, value):
-        """
-        This function deals with converting a comufy timestamp which is in unix
-        timestamp (in millisecond) to a python DateTime object.  Basically the timestamp
-        has three extra zeros on the end of it which means Python's built in datetime
-        object complains about it.
-        
-        """
-        if type(value) != type(int):
-            value = int(value)
-        value /= 1000
-        return datetime.fromtimestamp( value )
-    
     def send_api_call(self, data, add_access_token=True):
         """
         @return A boolean value that indicates if when communicating with Comufy's
@@ -126,12 +113,6 @@ class Comufy(object):
         details to Comufy's API correctly.
         
         """
-        
-        #Step 1: First check that we currently have a valid access token.
-        if not self.get_access_token():
-            return False
-        
-        #Step 2: Validate the tags being used with those associated with the app
         current_tags = self.get_application_tags(application_name)
         for key in user_details.get(u'tags').keys():
             if not key in current_tags:
@@ -141,19 +122,16 @@ class Comufy(object):
                 else:
                     #TODO: Add code to create a new tag for the application entry
                     log.error("Need to implement this bit")
-        
-        #Step 3: Build the data object that the API requires
+
         data = {
             u'cd':88,
             u'applicationName':application_name,
             u'accounts':[user_details]
         }
         success, message = self.send_api_call( data )
-        
-        #Step X: Check that the response from their server was OK
+
         if success:
             if message.get(u'cd') == 388:
-                #If we get an OK message this means the user was successfully added/updated so return True to the caller
                 return True
             else:
                 log.debug(
@@ -189,79 +167,49 @@ class Comufy(object):
         @return A list of user's detail dictionaries that were NOT sent successfully
         to Comufy's API.  If no details were not sent then this will be an empty list.
         """
-        
-        #Step 1: First check that we currently have a valid access token.
-        if not self.get_access_token():
-            return [], users_details
-        
-        #Step 2: Validate the tags being used with those associated with the app
-        #current_tags = self.get_application_tags()
-        
-        #Step 3: Create two new lists which will be used to store which user's details were sent successfully and which had errors on
-        sent_details = []
-        not_sent_details = []
-        
-        #Step 4: Start looping over the users_details variable until there are no entries left in it
-        while len(users_details) > 0:
-            
-            #Step 5: Next we need to determine how many users are left and if there are more than 50 then batch them
-            if len(users_details) > 50:                                             #MAGIC NUMBER: 50 is defined by Comufy's API as the maximum number of users that can be sent in a single registration/update request
-                to_send = users_details[:50]
-                users_details = users_details[50:]
-            else:
-                to_send = users_details
-                users_details = []
-            
+
+        def grouper(n, iterable, fill=None):
+            "Collect data into fixed-length chunks or blocks"
+            # grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx
+            from itertools import izip_longest
+            args = [iter(iterable)] * n
+            return izip_longest(fillvalue=fill, *args)
+
+        sent_list, not_sent_list = [], []
+        for group in grouper(50, users_details):
+            group = list(filter(None, group))
             data = {
-                u'cd':88,
-                u'applicationName':application_name,
-                u'accounts': to_send
+                u'cd':              88,
+                u'applicationName': application_name,
+                u'accounts':        group
             }
-            
+
             success, message = self.send_api_call( data )
-            
+
             if success:
-                if message.get(u'cd') == 388:                                       #MAGIC NUMBER: 388 is the OK response from Comufy's API
-                    sent_details.extend( to_send )
+                cd = int(message.get(u'cd', 0))
+                if cd == 388:
+                    log.warn("Success! store_users, data: %(data)s, response: %(message)s." % {
+                        'data': data, 'message': message })
+                    sent_list.extend(group)
+                elif cd ==475:
+                    log.warn("Invalid parameter provided! store_users, data: %(data)s, response: %(message)s." % {
+                        'data': data, 'message': message })
+                elif cd == 617:
+                    log.warn("Some of the tags passed are not registered! store_users, data: %(data)s, response: %(message)s." % {
+                        'data': data, 'message': message })
+                elif cd == 632:
+                    log.warn("_ERROR_FACEBOOK_PAGE_NOT_FOUND! store_users, data: %(data)s, response: %(message)s." % {
+                        'data': data, 'message': message })
                 else:
-                    log.debug(
-                        """
-                        Error adding a batch of users to the Comufy's API.
-                        
-                        File:
-                        support_comufy.py
-                        
-                        Function:
-                        add_application_users
-                        
-                        Reason:
-                        The data that was sent to the API was:
-                        %s
-                        
-                        The API call returned the following details:
-                        %s
-                        """%( json.dumps(data), json.dumps(message) )
-                    )
-                    not_sent_details.extend( to_send )
+                    log.error("Unknown response from server! store_users, data: %(data)s, response: %(message)s." % {
+                        'data': data, 'message': message })
+                    not_sent_list.extend(group)
             else:
-                log.debug(
-                    """
-                    Could not add batch of users to Comufy's API
-                    
-                    File:
-                    support_comufy.py
-                    
-                    Function:
-                    add_application_users
-                    
-                    Reason:
-                    Did not recieve a successful web request message from server i.e. no 'OK' from request
-                    """
-                )
-                not_sent_details.extend( to_send )
-        
-        return sent_details, not_sent_details
-    
+                log.error("Bad response from server: #{http.response_header}." % { })
+                not_sent_list.extend(group)
+        return sent_list, not_sent_list
+
     def get_application_users(self, application_name, filter=''):
         """
         """
