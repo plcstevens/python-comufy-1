@@ -10,17 +10,14 @@ log = logging.getLogger(__name__)
 
 """
 This is the heroku-specific comufy library which should grab everything it needs from the environment.
-Optionally, you can instantiate your own comufy instance for development purposes.
+Optionally, you can instantiate your own Comufy instance for development purposes.
 """
-
 class Comufy(object):
     
-    def __init__(self, access_token='', base_api_url='', username='', password=''):
+    def __init__(self, access_token='', base_api_url=''):
         " instatiate a comufy instance - check the environment variables are set."
-        self.access_token   = os.environ.get('COMUFY_TOKEN',    access_token)
-        self.base_api_url   = os.environ.get('COMUFY_URL',      base_api_url)
-        self.username       = os.environ.get('COMUFY_USERNAME', username)
-        self.password       = os.environ.get('COMUFY_PASSWORD', password)
+        self.access_token   = os.environ.get('COMUFY_TOKEN', access_token)
+        self.base_api_url   = os.environ.get('COMUFY_URL',   base_api_url)
 
     def convert_from_comufy_timestamp(self, value):
         """
@@ -47,108 +44,20 @@ class Comufy(object):
         successful, or if not what error there was.  If the web request did not receive
         an 'OK' then this will be None
         """
-        if add_access_token:
-            if not self.get_access_token():
-                return False, None
-            data['token'] = self.access_token
+        data['token'] = self.access_token
+
         json_data = json.dumps(data)
         log.debug(json_data)
+
         comufy_request = urllib2.Request(self.base_api_url)
         response = urllib2.urlopen( comufy_request, urllib.urlencode(dict(request=json_data)))
         log.debug(response.msg)
+
         if response.msg == 'OK':
             message = response.read()
             return True, json.loads(message)
         else:
             return False, None
-    
-    def authenticate_app(self):
-        """
-        This function attempts to get a new access token for the specified comufy
-        account.
-        
-        """
-        #Step X: First build the request object which contains all the information that are required for the authenitcation of the user
-        data = {
-            u'cd':131,
-            u'user':self.username,
-            u'password':self.password
-        }
-        
-        #Step X: Attempt to authenticate the user against Comufy's API
-        success, message = self.send_api_call( data, add_access_token=False )
-        
-        #Step X: Check that the response from their server was OK
-        if success:
-            #Step X: Check the responded 'cd' value to make sure it matches 235
-            if message.get(u'cd') == 235:
-                self.access_token = message.get(u'tokenInfo').get(u'token')
-                self.expiry_time = self.convert_from_comufy_timestamp( message.get(u'tokenInfo').get(u'expiryTime') )
-                return True
-            else:
-                #This means that the provided creditials are incorrect.  As such we should nuke any access_tokens we currently have stored in the global space
-                self.access_token = None
-                self.expiry_time = None
-                log.debug(
-                    """
-                    Could not authenticate against API.
-                    
-                    File:
-                    support_comufy.py
-                    
-                    Function:
-                    authenticate_app
-                    
-                    Reason:
-                    System returned the following message: %s
-                    """%(json.dumps(message))
-                )
-                return False
-        else:
-            log.error(
-                """
-                Could not authenticate against API.
-                
-                File:
-                support_comufy.py
-                
-                Function:
-                authenticate_app
-                
-                Reason:
-                Did not recieve a successful web request message from server i.e. no 'OK' from request
-                """
-            )
-        return False
-    
-    def has_token_expired(self):
-        """
-        This function simply determines if the access token we currently have stored
-        has actually expired.  If it has expired, then this function will also null
-        the access token and expiry time variables, so that future API calls will
-        be forced to get a new token.
-        
-        @returns A boolean value to indicate if the currently stored access token
-        has expired based on the expiry time value sent back with the access token.
-        """
-        
-        if self.expiry_time is not None and self.expiry_time > datetime.now():
-            return False
-        
-        #Else: Clear the current values
-        self.expiry_time = None
-        self.access_token = None
-        return True
-    
-    def get_access_token(self):
-        
-        #Step 1: First determine if we actually need to authenticate the app, or if we have a currently valid access token
-        if self.has_token_expired():
-            #Step 2: If the token has expired (or null) then attempt to re-authenticate against Comufy's servers
-            if not self.authenticate_app():
-                #If we failed to authenticate against the server, then return false to the caller
-                return False
-        return True
     
     
     def get_application_tags(self, application_name):
@@ -164,31 +73,23 @@ class Comufy(object):
             timeouts, etc.
         
         """
-        #Step 1: First check that we currently have a valid access token.
-        if not self.get_access_token():
-            return False
-        
-        #Step 2: Build the data object with the specific command in that will be used to retreive all the tags
         data = {
-            u'cd':101
+            u'cd': 101
         }
-        
-        #Step 3: Call Comufy's API with the specific command
-        success, message = self.send_api_call( data )
-        
-        #Step 4: Check that the response from their server was OK
+
+        success, message = self.send_api_call(data)
         if success:
-            if message.get(u'cd') == 219:                                           #MAGIC NUMBER: 219 is the OK response from the Comufy API's for this particular command
+            if message.get(u'cd') == 219:
                 for app in message.get(u'applications'):
                     if app.get(u'name') == application_name:
                         return [ tag.get(u'name') for tag in app.get(u'tags') ]
-                msg = 'Exception: File=%s, Function=%s, Message=Unable to find the application in the list of registered application on Comufy'%( 'support_comufy.py', 'get_application_tags' )
+                msg = 'Unable to find the application in the list of registered application on Comufy'
             else:
-                msg = 'Exception: File=%s, Function=%s, Message=Comufy returned an error code, Code=%s'%( 'support_comufy.py', 'get_application_tags', message.get(u'cd') )
+                msg = 'Comufy returned an error code, Code = %s' % message.get(u'cd')
         else:
-            msg = 'Exception: File=%s, Function=%s, Message=Comufy API query was unsuccessful'%( 'support_comufy.py', 'get_application_tags' )
-    
-        log.error( msg )
+            msg = 'Comufy API query was unsuccessful'
+
+        log.error(msg)
         raise Exception(msg)
     
     def add_application_user(self, application_name, user_details, add_new_tags=False):
@@ -365,11 +266,11 @@ class Comufy(object):
         """
         """
         data = {
-            u'cd':82,
-            u'since':1314835200000,
-            u'fetchMode':'STATS_ONLY',
-            u'filter':filter,
-            u'applicationName':application_name
+            u'cd':              82,
+            u'since':           1314835200000,
+            u'fetchMode':       'STATS_ONLY',
+            u'filter':          filter,
+            u'applicationName': application_name
         }
         success, message = self.send_api_call( data )
         if success:
@@ -395,22 +296,64 @@ class Comufy(object):
     
         if type(fb_ids) is not list:
             fb_ids=[fb_ids]
+
         data = {
-            'cd': 83,
-            'content':content,
-            'description':description,
-            'fbMessagePrivacyMode':privacy_mode,
-            'applicationName': application_name,
-            # This results in FACEBOOK_ID=123 OR FACEBOOK_ID=234 etc, no or's if only 1 element
-            'filter':'FACEBOOK_ID="%s"'%(' OR FACEBOOK_ID='.join(fb_ids))
+            'cd':                   83,
+            'content':              content,
+            'description':          description,
+            'fbMessagePrivacyMode': privacy_mode,
+            'applicationName':      application_name,
+            'filter':               'FACEBOOK_ID="%s"'%(' OR FACEBOOK_ID='.join(fb_ids))
         }
-        if notification==True:
+
+        if notification:
             data["facebookTargetingMode"]="NOTIFICATION"
     
-        log.debug( data )
+        log.debug(data)
     
         success, message = self.send_api_call( data )
-        return success, message
+        log.debug(message)
+
+        if success:
+            cd = int(message.get('cd', 0))
+            if cd == 383:
+                log.info("Success! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+                return True
+            elif cd == 416:
+                log.warn("_ERROR_MSG_SEND_FAILED! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 475:
+                log.warn("Invalid parameters provided! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 551:
+                log.warn("_ERROR_TAG_VALUE_NOT_FOUND! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 603:
+                log.warn("_ERROR_DOMAIN_APPLICATION_NAME_NOT_FOUND! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 607:
+                log.warn("_ERROR_UNAUTHORISED_ACTION! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 617:
+                log.warn("_ERROR_DOMAIN_APPLICATION_TAG_NOT_FOUND! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 648:
+                log.warn("_ERROR_FACEBOOK_APPLICATION_USER_NOT_FOUND! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 673:
+                log.warn("Invalid time exception! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            elif cd == 679:
+                log.warn("_ERROR_MALFORMED_TARGETING_EXPRESSION! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+            else:
+                log.error("Unknown response from server! send_message, data: %(data)s, response: %(message)s." % {
+                    'data': data, 'message': message })
+        else:
+            log.error("Bad response from server: response: %(message)s." % { 'message': message })
+
+        return False
     
     
     #TAG STUFF
