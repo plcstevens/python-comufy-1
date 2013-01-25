@@ -14,10 +14,11 @@ Optionally, you can instantiate your own Comufy instance for development purpose
 """
 class Comufy(object):
     
-    def __init__(self, access_token='', base_api_url=''):
+    def __init__(self, access_token='', base_api_url='', appname=''):
         " instatiate a comufy instance - check the environment variables are set."
-        self.access_token   = os.environ.get('COMUFY_TOKEN', access_token)
-        self.base_api_url   = os.environ.get('COMUFY_URL',   base_api_url)
+        self.access_token   = os.environ.get('COMUFY_TOKEN',        access_token)
+        self.base_api_url   = os.environ.get('COMUFY_URL',          base_api_url)
+        self.app_name       = os.environ.get('COMUFY_APP_NAME',     appname)
 
     def send_api_call(self, data, add_access_token=True):
         """
@@ -47,7 +48,7 @@ class Comufy(object):
             return False, None
     
     
-    def get_application_tags(self, application_name):
+    def get_application_tags(self):
         """
         This function simply returns a list of known tags for the application.  An
         exception will be thrown from this function under the following circumstances:
@@ -68,7 +69,7 @@ class Comufy(object):
         if success:
             if message.get(u'cd') == 219:
                 for app in message.get(u'applications'):
-                    if app.get(u'name') == application_name:
+                    if app.get(u'name') == self.app_name:
                         return [ tag.get(u'name') for tag in app.get(u'tags') ]
                 msg = 'Unable to find the application in the list of registered application on Comufy'
             else:
@@ -79,7 +80,7 @@ class Comufy(object):
         log.error(msg)
         raise Exception(msg)
     
-    def add_application_user(self, application_name, user_details, add_new_tags=False):
+    def add_application_user(self, user_details, add_new_tags=False):
         """
         This function allows the caller to add a single user to Comufy's user database.
         The function requires the caller to pass in a dictionary of the user's details
@@ -113,7 +114,7 @@ class Comufy(object):
         details to Comufy's API correctly.
         
         """
-        current_tags = self.get_application_tags(application_name)
+        current_tags = self.get_application_tags(self.app_name)
         for key in user_details.get(u'tags').keys():
             if not key in current_tags:
                 if not add_new_tags:
@@ -124,9 +125,9 @@ class Comufy(object):
                     log.error("Need to implement this bit")
 
         data = {
-            u'cd':88,
-            u'applicationName':application_name,
-            u'accounts':[user_details]
+            u'cd':              88,
+            u'applicationName': self.app_name,
+            u'accounts':        [user_details]
         }
         success, message = self.send_api_call( data )
 
@@ -154,7 +155,7 @@ class Comufy(object):
                 )
                 return False
     
-    def add_application_users(self, application_name, users_details ):
+    def add_application_users(self, users_details ):
         """
         
         @param users_details A list of dictionary objects that should contains the keys
@@ -180,7 +181,7 @@ class Comufy(object):
             group = list(filter(None, group))
             data = {
                 u'cd':              88,
-                u'applicationName': application_name,
+                u'applicationName': self.app_name,
                 u'accounts':        group
             }
 
@@ -210,17 +211,21 @@ class Comufy(object):
                 not_sent_list.extend(group)
         return sent_list, not_sent_list
 
-    def get_application_users(self, application_name, filter=''):
+    def get_application_users(self, filter=''):
         """
         """
         data = {
             u'cd':              82,
             u'since':           1314835200000,
-            u'fetchMode':       'STATS_ONLY',
+            u'fetchMode':       'ALL',
             u'filter':          filter,
-            u'applicationName': application_name
+            u'applicationName': self.app_name
         }
-        success, message = self.send_api_call( data )
+        if filter == '':
+            data[u'filter'] = 'USER.USER_STATE="Unknown"'
+
+        success, message = self.send_api_call(data)
+
         if success:
             if message.get('cd') == 692:
                 log.debug('Invalid filter/filter not found')
@@ -229,7 +234,7 @@ class Comufy(object):
         
         return False, None
     
-    def send_message(self, application_name, description, content, fb_ids,
+    def send_message(self, description, content, fb_ids,
                      privacy_mode="PRIVATE", notification=False):
         """Sends a message with the desicription or content to the
         facebook id or id's specified (singular or list).
@@ -250,17 +255,14 @@ class Comufy(object):
             'content':              content,
             'description':          description,
             'fbMessagePrivacyMode': privacy_mode,
-            'applicationName':      application_name,
+            'applicationName':      self.app_name,
             'filter':               'FACEBOOK_ID="%s"'%(' OR FACEBOOK_ID='.join(fb_ids))
         }
-
         if notification:
             data["facebookTargetingMode"]="NOTIFICATION"
-    
         log.debug(data)
     
         success, message = self.send_api_call( data )
-        log.debug(message)
 
         if success:
             cd = int(message.get('cd', 0))
@@ -305,7 +307,7 @@ class Comufy(object):
     
     
     #TAG STUFF
-    def register_facebook_application_tag(self, application_name, tags):
+    def register_facebook_application_tag(self, tags):
         """
         Takes a dictionary of tags ala [{"name":"dob", "type": "DATE"}]
         
@@ -319,10 +321,10 @@ class Comufy(object):
                 if t['type'] not in allowed_types:
                     log.error('Incorrect type: %s, must be one of %s' % (t['type'], allowed_types))
         data = {
-            'cd': '86',
-            'tags': tags,
-            'applicationName': application_name
-            }
+            'cd':               86,
+            'tags':             tags,
+            'applicationName':  self.app_name
+        }
         
         success, message = self.send_api_call(data)
         log.debug(success, message)
@@ -336,14 +338,14 @@ class Comufy(object):
             return False, 'Application tag already registered'
         
     #TAG STUFF
-    def unregister_facebook_application_tag(self, application_name, tag):
+    def unregister_facebook_application_tag(self, tag):
         """
         Takes a single tag name (string) ie how_much_bob_ate
         """
         data = {
-            'cd': '85',
-            'tag': tag,
-            'applicationName': application_name
+            'cd':               85,
+            'tag':              tag,
+            'applicationName':  self.app_name
             }
         
         success, message = self.send_api_call(data)
